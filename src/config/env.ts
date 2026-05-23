@@ -20,6 +20,7 @@ const envSchema = z.object({
   MYSQL_PASSWORD: z.string().optional().default(''),
   MYSQL_DATABASE: z.string().min(1),
   MYSQL_CONNECTION_LIMIT: z.coerce.number().int().positive().default(10),
+  MYSQL_CONNECT_TIMEOUT: z.coerce.number().int().positive().default(10000),
   CAMPAIGN_YEAR: z.string().min(4).default('2026'),
   PUBLIC_TICKET_BASE_URL: z.string().url().default('https://tickets.hogueras.es'),
   CORS_ALLOWED_ORIGINS: z.string().optional().default(''),
