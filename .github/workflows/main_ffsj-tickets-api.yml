@@ -29,11 +29,18 @@ jobs:
           npm run build --if-present
           npm run test --if-present
 
+      - name: Prepare deployment package
+        run: |
+          mkdir deploy-package
+          cp -R dist deploy-package/dist
+          cp package.json package-lock.json server.js deploy-package/
+          npm ci --omit=dev --prefix deploy-package
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: .
+          path: deploy-package
 
   deploy:
     runs-on: ubuntu-latest
