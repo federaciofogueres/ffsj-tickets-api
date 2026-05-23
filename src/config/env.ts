@@ -5,7 +5,10 @@ dotenv.config();
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive(),
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z.preprocess(
+    (value) => value === 'prod' ? 'production' : value,
+    z.enum(['development', 'test', 'production']).default('development')
+  ),
   ADMIN_API_KEY: z.string().optional().default(''),
   ADMIN_JWT_SECRET: z.string().min(1).optional(),
   ADMIN_JWT_ALLOWED_USERS: z.string().optional().default(''),
