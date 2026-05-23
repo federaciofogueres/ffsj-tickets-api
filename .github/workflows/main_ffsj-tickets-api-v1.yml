@@ -29,18 +29,11 @@ jobs:
           npm run build --if-present
           npm run test --if-present
 
-      - name: Prepare deployment package
-        run: |
-          mkdir deploy-package
-          cp -R dist deploy-package/dist
-          cp package.json package-lock.json server.js deploy-package/
-          npm ci --omit=dev --prefix deploy-package
-
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: deploy-package
+          path: .
 
   deploy:
     runs-on: ubuntu-latest
@@ -58,9 +51,9 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_AC6E0A532EC34B9CB7A78E4AA1235084 }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_0F2A30B6AD6F4222886B7ABCE14F2C21 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_EE5981DAF52F4C3189C81F911918097A }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_8A3BBD2F17184069A9F740E8E3813D6A }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_03642495A4E44706A30A66FA2834E8B5 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E80482AFE45E457780134DF7E9D79119 }}
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
