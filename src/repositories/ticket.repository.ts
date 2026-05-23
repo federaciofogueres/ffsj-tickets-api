@@ -225,7 +225,6 @@ export class TicketRepository {
   async delete(code: string, year?: string): Promise<void> {
     const ticket = await this.findByCode(code, year);
     if (!ticket) throw new AppError('TICKET_NOT_FOUND', 404, 'La entrada no existe');
-    if (ticket.usada) throw new AppError('TICKET_USED', 409, 'No se puede eliminar una entrada validada');
     await this.pool.execute('DELETE FROM tickets WHERE year = ? AND codigo = ?', [this.safeYear(year), ticket.codigo]);
   }
 
@@ -233,7 +232,6 @@ export class TicketRepository {
     const tickets = await this.findByBatch(batchId, year);
     if (!tickets.length) throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
     const validatedTickets = tickets.filter((ticket) => ticket.usada).map((ticket) => ticket.codigo);
-    if (validatedTickets.length) throw new AppError('TICKET_BATCH_HAS_VALIDATED', 409, 'El lote tiene entradas ya validadas', { validatedTickets });
     const [result] = await this.pool.execute('DELETE FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?)', [this.safeYear(year), batchId]);
     return { batchId, deleted: affectedRows(result), validatedTickets };
   }
