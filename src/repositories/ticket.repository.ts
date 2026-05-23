@@ -112,7 +112,7 @@ export class TicketRepository {
 
   async findByBatch(batchId: string, year?: string): Promise<Ticket[]> {
     const [rows] = await this.pool.execute<Rows<TicketRow>>(
-      'SELECT * FROM tickets WHERE year = ? AND batch_id = ? ORDER BY codigo ASC',
+      'SELECT * FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?) ORDER BY codigo ASC',
       [this.safeYear(year), batchId]
     );
     return rows.map(serializeTicket);
@@ -191,13 +191,33 @@ export class TicketRepository {
     return (await this.findByCode(code, year))!;
   }
 
+  async markBatchValidated(batchId: string, year?: string): Promise<{ validatedNow: number; tickets: Ticket[] }> {
+    const tickets = await this.findByBatch(batchId, year);
+    if (!tickets.length) {
+      throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
+    }
+
+    const now = new Date().toISOString();
+    const [result] = await this.pool.execute(
+      `UPDATE tickets
+       SET usada = 1, usada_at = ?, validated_at = ?
+       WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND usada = 0 AND activada = 1 AND bloqueada = 0`,
+      [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), batchId]
+    );
+
+    return {
+      validatedNow: affectedRows(result),
+      tickets: await this.findByBatch(batchId, year)
+    };
+  }
+
   async activateBatch(batchId: string, year?: string): Promise<{ batchId: string; total: number; activatedCount: number; changedCount: number; remainingInactive: number }> {
     const safeYear = this.safeYear(year);
-    const [totalRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND batch_id = ?', [safeYear, batchId]);
+    const [totalRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?)', [safeYear, batchId]);
     const total = Number(totalRows[0]?.total ?? 0);
     if (!total) throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
-    const [result] = await this.pool.execute('UPDATE tickets SET activada = 1, activada_at = COALESCE(activada_at, CURRENT_TIMESTAMP(3)) WHERE year = ? AND batch_id = ? AND activada = 0', [safeYear, batchId]);
-    const [activeRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND batch_id = ? AND activada = 1', [safeYear, batchId]);
+    const [result] = await this.pool.execute('UPDATE tickets SET activada = 1, activada_at = COALESCE(activada_at, CURRENT_TIMESTAMP(3)) WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND activada = 0', [safeYear, batchId]);
+    const [activeRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND activada = 1', [safeYear, batchId]);
     const activatedCount = Number(activeRows[0]?.total ?? 0);
     return { batchId, total, activatedCount, changedCount: affectedRows(result), remainingInactive: total - activatedCount };
   }
@@ -214,7 +234,7 @@ export class TicketRepository {
     if (!tickets.length) throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
     const validatedTickets = tickets.filter((ticket) => ticket.usada).map((ticket) => ticket.codigo);
     if (validatedTickets.length) throw new AppError('TICKET_BATCH_HAS_VALIDATED', 409, 'El lote tiene entradas ya validadas', { validatedTickets });
-    const [result] = await this.pool.execute('DELETE FROM tickets WHERE year = ? AND batch_id = ?', [this.safeYear(year), batchId]);
+    const [result] = await this.pool.execute('DELETE FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?)', [this.safeYear(year), batchId]);
     return { batchId, deleted: affectedRows(result), validatedTickets };
   }
 
