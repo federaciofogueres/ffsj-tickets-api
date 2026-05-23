@@ -4,6 +4,7 @@ import { env } from '../config/env';
 import type { Ticket, TicketBatchResult, TicketValidationResult } from '../types/domain';
 import { buildTicketQrUrl, createTicketCode } from '../utils/ticket-code';
 import type { TicketRepository } from '../repositories/ticket.repository';
+import { AppError } from '../utils/app-error';
 
 export class TicketService {
   constructor(private readonly ticketRepository: TicketRepository) {}
@@ -57,10 +58,31 @@ export class TicketService {
       return { status: 'inactive', codigo: code, ticket, message: 'Entrada pendiente de activar.' };
     }
     if (ticket.usada) {
-      return { status: 'used', codigo: code, ticket, message: 'Entrada ya validada.' };
+      const validatedAt = ticket.validatedAt ?? ticket.usadaAt;
+      return {
+        status: 'used',
+        codigo: code,
+        ticket,
+        message: validatedAt ? `Entrada ya validada. Validada el ${validatedAt}.` : 'Entrada ya validada.'
+      };
     }
 
-    const validated = await this.ticketRepository.markValidated(code, year);
+    let validated: Ticket;
+    try {
+      validated = await this.ticketRepository.markValidated(code, year);
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'TICKET_USED') {
+        const usedTicket = await this.ticketRepository.findByCode(code, year);
+        const validatedAt = usedTicket?.validatedAt ?? usedTicket?.usadaAt;
+        return {
+          status: 'used',
+          codigo: code,
+          ticket: usedTicket,
+          message: validatedAt ? `Entrada ya validada. Validada el ${validatedAt}.` : 'Entrada ya validada.'
+        };
+      }
+      throw error;
+    }
     return { status: 'valid', codigo: code, ticket: validated, message: 'Entrada valida.' };
   }
 }

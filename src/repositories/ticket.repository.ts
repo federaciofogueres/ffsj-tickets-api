@@ -181,10 +181,13 @@ export class TicketRepository {
     }
 
     const now = new Date().toISOString();
-    await this.pool.execute(
-      'UPDATE tickets SET usada = 1, usada_at = ?, validated_at = ? WHERE year = ? AND codigo = ?',
+    const [result] = await this.pool.execute(
+      'UPDATE tickets SET usada = 1, usada_at = ?, validated_at = ? WHERE year = ? AND codigo = ? AND usada = 0',
       [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), ticket.codigo]
     );
+    if (!affectedRows(result)) {
+      throw new AppError('TICKET_USED', 409, 'La entrada ya fue validada');
+    }
     return (await this.findByCode(code, year))!;
   }
 

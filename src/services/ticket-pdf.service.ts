@@ -46,7 +46,6 @@ export class TicketPdfService {
       pdf.fillColor('#626976').font('Helvetica').fontSize(22).text('Presenta este QR en el acceso.', 300, 152, { width: 600 });
       pdf.image(qrBuffer, 548, 118, { width: 340, height: 340 });
       pdf.fillColor(INK).font('Helvetica-Bold').fontSize(38).text(ticket.codigo, 300, 482, { width: 588, align: 'center' });
-      pdf.fillColor('#626976').font('Helvetica').fontSize(18).text(ticket.qrUrl ?? '', 300, 536, { width: 588, align: 'center' });
     }
   }
 }
