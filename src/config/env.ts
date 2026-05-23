@@ -4,7 +4,7 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  PORT: z.coerce.number().int().positive().default(4100),
+  PORT: z.coerce.number().int().positive(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   ADMIN_API_KEY: z.string().optional().default(''),
   ADMIN_JWT_SECRET: z.string().min(1).optional(),
@@ -28,4 +28,16 @@ const envSchema = z.object({
   SMTP_FROM: z.string().optional().default('')
 });
 
-export const env = envSchema.parse(process.env);
+const rawEnv = {
+  ...process.env,
+  PORT: process.env.PORT ?? process.env.WEBSITES_PORT ?? (process.env.NODE_ENV === 'production' ? '8080' : '4100')
+};
+
+const parsedEnv = envSchema.safeParse(rawEnv);
+
+if (!parsedEnv.success) {
+  console.error('Invalid environment configuration', parsedEnv.error.flatten().fieldErrors);
+  throw parsedEnv.error;
+}
+
+export const env = parsedEnv.data;
