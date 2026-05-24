@@ -56,8 +56,26 @@ export interface AdminStats {
   totalLotes: number;
 }
 
+export interface TrackingLog {
+  id: number;
+  year: string;
+  action: string;
+  actorId: string | null;
+  actorLabel: string | null;
+  ip: string | null;
+  method: string;
+  path: string;
+  targetType: string | null;
+  targetId: string | null;
+  status: string;
+  message: string | null;
+  metadata: unknown;
+  createdAt: string;
+}
+
 export interface AppServices {
   ticketRepository: import('../repositories/ticket.repository').TicketRepository;
+  trackingRepository: import('../repositories/tracking.repository').TrackingRepository;
   ticketService: import('../services/ticket.service').TicketService;
   ticketEmailService: import('../services/ticket-email.service').TicketEmailService;
   ticketPdfService: import('../services/ticket-pdf.service').TicketPdfService;

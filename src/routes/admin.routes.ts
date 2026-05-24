@@ -12,6 +12,8 @@ import {
   listTicketsQuerySchema,
   ticketCodeSchema,
   ticketEmailSchema,
+  trackingIdSchema,
+  trackingListQuerySchema,
   updateTicketSchema,
   validateTicketSchema,
   yearQuerySchema
@@ -24,6 +26,9 @@ export const createAdminRouter = (services: AppServices): Router => {
   router.use(adminAuthMiddleware);
   router.get('/me', asyncHandler(controller.me));
   router.get('/stats', validateQuery(yearQuerySchema), asyncHandler(controller.stats));
+  router.get('/tracking/actions', validateQuery(yearQuerySchema), asyncHandler(controller.listTrackingActions));
+  router.get('/tracking/:id', validateQuery(yearQuerySchema), validateParams(trackingIdSchema), asyncHandler(controller.getTrackingLog));
+  router.get('/tracking', validateQuery(trackingListQuerySchema), asyncHandler(controller.listTrackingLogs));
   router.post('/validate', validateQuery(yearQuerySchema), validateBody(validateTicketSchema), asyncHandler(controller.validateTicket));
   router.post('/tickets/generate', validateQuery(yearQuerySchema), validateBody(generateTicketsSchema), asyncHandler(controller.generateTickets));
   router.post('/tickets/email', validateQuery(yearQuerySchema), validateBody(ticketEmailSchema), asyncHandler(controller.sendTicketsByEmail));

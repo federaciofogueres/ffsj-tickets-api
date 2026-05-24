@@ -12,6 +12,21 @@ export const listTicketsQuerySchema = yearQuerySchema.extend({
   mode: z.enum(['single', 'batch']).optional()
 });
 
+export const trackingListQuerySchema = yearQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  cursor: z.string().optional(),
+  search: z.string().trim().max(120).optional(),
+  action: z.string().trim().max(80).optional(),
+  actor: z.string().trim().max(120).optional(),
+  ip: z.string().trim().max(80).optional(),
+  dateFrom: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateTo: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+});
+
+export const trackingIdSchema = z.object({
+  id: z.coerce.number().int().positive()
+});
+
 export const ticketCodeSchema = z.object({
   codigo: z.string().trim().min(4).max(80).regex(/^[a-zA-Z0-9-]+$/)
 });
