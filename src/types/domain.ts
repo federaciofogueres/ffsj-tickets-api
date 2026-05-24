@@ -1,4 +1,5 @@
 export interface Ticket {
+  eventId: string | null;
   codigo: string;
   activada: boolean;
   activadaAt: string | null;
@@ -56,6 +57,17 @@ export interface AdminStats {
   totalLotes: number;
 }
 
+export interface Event {
+  id: string;
+  year: string;
+  nombre: string;
+  descripcion: string | null;
+  fechaEvento: string | null;
+  estado: 'activo' | 'finalizado';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TrackingLog {
   id: number;
   year: string;
@@ -74,6 +86,7 @@ export interface TrackingLog {
 }
 
 export interface AppServices {
+  eventRepository: import('../repositories/event.repository').EventRepository;
   ticketRepository: import('../repositories/ticket.repository').TicketRepository;
   trackingRepository: import('../repositories/tracking.repository').TrackingRepository;
   ticketService: import('../services/ticket.service').TicketService;

@@ -13,7 +13,7 @@ export class TicketEmailService {
     private readonly ticketPdfService: TicketPdfService
   ) {}
 
-  async sendTickets(input: { email: string; code?: string; batchId?: string }, year?: string): Promise<TicketEmailResult> {
+  async sendTickets(input: { email: string; code?: string; batchId?: string; eventId?: string | null }, year?: string): Promise<TicketEmailResult> {
     if (!env.SMTP_HOST || (!env.SMTP_FROM && !env.SMTP_USER)) {
       throw new AppError('EMAIL_NOT_CONFIGURED', 500, 'El envio de emails no esta configurado.');
     }
@@ -22,8 +22,8 @@ export class TicketEmailService {
     }
 
     const tickets: Ticket[] = input.code
-      ? [await this.ticketRepository.findByCode(input.code, year)].filter((ticket): ticket is Ticket => ticket !== null)
-      : await this.ticketRepository.findByBatch(input.batchId!, year);
+      ? [await this.ticketRepository.findByCode(input.code, year, input.eventId)].filter((ticket): ticket is Ticket => ticket !== null)
+      : await this.ticketRepository.findByBatch(input.batchId!, year, input.eventId);
 
     if (!tickets.length) {
       throw new AppError('TICKET_NOT_FOUND', 404, 'No se han encontrado entradas para enviar.');

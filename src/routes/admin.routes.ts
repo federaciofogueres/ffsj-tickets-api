@@ -7,13 +7,16 @@ import { validateBody, validateParams, validateQuery } from '../middlewares/vali
 import type { AppServices } from '../types/domain';
 import {
   batchIdSchema,
+  createEventSchema,
   createTicketSchema,
+  eventParamsSchema,
   generateTicketsSchema,
   listTicketsQuerySchema,
   ticketCodeSchema,
   ticketEmailSchema,
   trackingIdSchema,
   trackingListQuerySchema,
+  updateEventSchema,
   updateTicketSchema,
   validateTicketSchema,
   yearQuerySchema
@@ -25,6 +28,10 @@ export const createAdminRouter = (services: AppServices): Router => {
 
   router.use(adminAuthMiddleware);
   router.get('/me', asyncHandler(controller.me));
+  router.get('/eventos', validateQuery(yearQuerySchema), asyncHandler(controller.listEvents));
+  router.post('/eventos', validateQuery(yearQuerySchema), validateBody(createEventSchema), asyncHandler(controller.createEvent));
+  router.get('/eventos/:id', validateQuery(yearQuerySchema), validateParams(eventParamsSchema), asyncHandler(controller.getEvent));
+  router.put('/eventos/:id', validateQuery(yearQuerySchema), validateParams(eventParamsSchema), validateBody(updateEventSchema), asyncHandler(controller.updateEvent));
   router.get('/stats', validateQuery(yearQuerySchema), asyncHandler(controller.stats));
   router.get('/tracking/actions', validateQuery(yearQuerySchema), asyncHandler(controller.listTrackingActions));
   router.get('/tracking/:id', validateQuery(yearQuerySchema), validateParams(trackingIdSchema), asyncHandler(controller.getTrackingLog));

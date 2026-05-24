@@ -1,7 +1,23 @@
 import { z } from 'zod';
 
 export const yearQuerySchema = z.object({
-  year: z.string().trim().regex(/^\d{4}$/).optional()
+  year: z.string().trim().regex(/^\d{4}$/).optional(),
+  eventId: z.string().trim().uuid().optional()
+});
+
+export const eventParamsSchema = z.object({
+  id: z.string().trim().uuid()
+});
+
+export const createEventSchema = z.object({
+  nombre: z.string().trim().min(2).max(180),
+  descripcion: z.string().trim().max(5000).optional().nullable(),
+  fechaEvento: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  estado: z.enum(['activo', 'finalizado']).optional().default('activo')
+});
+
+export const updateEventSchema = createEventSchema.partial().refine((value) => Object.keys(value).length > 0, {
+  message: 'Indica algun campo para actualizar'
 });
 
 export const listTicketsQuerySchema = yearQuerySchema.extend({

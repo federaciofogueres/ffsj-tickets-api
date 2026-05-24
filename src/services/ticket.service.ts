@@ -9,7 +9,7 @@ import { AppError } from '../utils/app-error';
 export class TicketService {
   constructor(private readonly ticketRepository: TicketRepository) {}
 
-  async generateBatch(input: { quantity: number; prefix?: string; fisica?: boolean; year?: string }): Promise<TicketBatchResult> {
+  async generateBatch(input: { quantity: number; prefix?: string; fisica?: boolean; year?: string; eventId?: string | null }): Promise<TicketBatchResult> {
     const batchId = randomUUID();
     const now = new Date().toISOString();
     const fisica = Boolean(input.fisica);
@@ -18,11 +18,12 @@ export class TicketService {
 
     while (tickets.length < input.quantity) {
       const codigo = createTicketCode(input.prefix);
-      if (uniqueCodes.has(codigo) || await this.ticketRepository.exists(codigo, input.year)) {
+      if (uniqueCodes.has(codigo) || await this.ticketRepository.exists(codigo, input.year, input.eventId)) {
         continue;
       }
       uniqueCodes.add(codigo);
       tickets.push({
+        eventId: input.eventId ?? null,
         codigo,
         activada: false,
         activadaAt: null,
@@ -37,7 +38,7 @@ export class TicketService {
       });
     }
 
-    await this.ticketRepository.createMany(tickets, input.year);
+    await this.ticketRepository.createMany(tickets, input.year, input.eventId);
     return {
       batchId,
       totalGenerated: tickets.length,
@@ -46,12 +47,12 @@ export class TicketService {
     };
   }
 
-  async validate(code: string, year?: string): Promise<TicketValidationResult> {
-    const ticket = await this.ticketRepository.findByCode(code, year);
+  async validate(code: string, year?: string, eventId?: string | null): Promise<TicketValidationResult> {
+    const ticket = await this.ticketRepository.findByCode(code, year, eventId);
     if (!ticket) {
-      const batchTickets = await this.ticketRepository.findByBatch(code, year);
+      const batchTickets = await this.ticketRepository.findByBatch(code, year, eventId);
       if (batchTickets.length) {
-        return this.validateBatch(code, batchTickets, year);
+        return this.validateBatch(code, batchTickets, year, eventId);
       }
       return { status: 'invalid', codigo: code, ticket: null, message: 'Entrada no encontrada.' };
     }
@@ -74,10 +75,10 @@ export class TicketService {
 
     let validated: Ticket;
     try {
-      validated = await this.ticketRepository.markValidated(code, year);
+      validated = await this.ticketRepository.markValidated(code, year, eventId);
     } catch (error) {
       if (error instanceof AppError && error.code === 'TICKET_USED') {
-        const usedTicket = await this.ticketRepository.findByCode(code, year);
+        const usedTicket = await this.ticketRepository.findByCode(code, year, eventId);
         const validatedAt = usedTicket?.validatedAt ?? usedTicket?.usadaAt;
         return {
           status: 'used',
@@ -92,7 +93,7 @@ export class TicketService {
     return { status: 'valid', codigo: code, ticket: validated, message: 'Entrada valida.', summary: this.ticketSummary(validated, 1) };
   }
 
-  private async validateBatch(code: string, tickets: Ticket[], year?: string): Promise<TicketValidationResult> {
+  private async validateBatch(code: string, tickets: Ticket[], year?: string, eventId?: string | null): Promise<TicketValidationResult> {
     const blocked = tickets.filter((ticket) => ticket.bloqueada).length;
     const inactive = tickets.filter((ticket) => !ticket.activada).length;
     const alreadyValidated = tickets.filter((ticket) => ticket.usada).length;
@@ -107,7 +108,7 @@ export class TicketService {
       };
     }
 
-    const { validatedNow, tickets: updatedTickets } = await this.ticketRepository.markBatchValidated(code, year);
+    const { validatedNow, tickets: updatedTickets } = await this.ticketRepository.markBatchValidated(code, year, eventId);
     const summary = this.batchSummary(updatedTickets, validatedNow)!;
     if (validatedNow === 0 && alreadyValidated > 0) {
       return {

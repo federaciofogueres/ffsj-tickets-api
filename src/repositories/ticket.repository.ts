@@ -4,9 +4,11 @@ import { env } from '../config/env';
 import type { AdminStats, PaginatedResult, Ticket } from '../types/domain';
 import { AppError } from '../utils/app-error';
 import { affectedRows, bool, toIso, toMysqlDate, type Rows } from '../utils/mysql';
+import type { EventRepository } from './event.repository';
 
 type TicketRow = {
   year: string;
+  event_id: string | null;
   codigo: string;
   activada: number;
   activada_at: Date | null;
@@ -21,6 +23,7 @@ type TicketRow = {
 };
 
 const serializeTicket = (row: TicketRow): Ticket => ({
+  eventId: row.event_id,
   codigo: row.codigo,
   activada: bool(row.activada),
   activadaAt: toIso(row.activada_at),
@@ -35,19 +38,21 @@ const serializeTicket = (row: TicketRow): Ticket => ({
 });
 
 export class TicketRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pool, private readonly eventRepository: EventRepository) {}
 
   private safeYear(year?: string): string {
     return String(year || env.CAMPAIGN_YEAR).replace(/[^0-9]/g, '') || env.CAMPAIGN_YEAR;
   }
 
-  async create(input: { codigo: string; activada?: boolean; bloqueada?: boolean; fisica?: boolean; qrUrl?: string | null }, year?: string): Promise<Ticket> {
-    if (await this.exists(input.codigo, year)) {
+  async create(input: { codigo: string; activada?: boolean; bloqueada?: boolean; fisica?: boolean; qrUrl?: string | null; eventId?: string | null }, year?: string): Promise<Ticket> {
+    const eventId = await this.eventRepository.resolveEventId(input.eventId, year);
+    if (await this.exists(input.codigo, year, eventId)) {
       throw new AppError('TICKET_EXISTS', 409, 'La entrada ya existe');
     }
 
     const now = new Date().toISOString();
     const ticket: Ticket = {
+      eventId,
       codigo: input.codigo.trim().toUpperCase(),
       activada: Boolean(input.activada),
       activadaAt: input.activada ? now : null,
@@ -60,25 +65,27 @@ export class TicketRepository {
       batchId: null,
       qrUrl: input.qrUrl ?? null
     };
-    await this.insert(ticket, this.safeYear(year));
+    await this.insert(ticket, this.safeYear(year), eventId);
     return ticket;
   }
 
-  async createMany(tickets: Ticket[], year?: string): Promise<void> {
+  async createMany(tickets: Ticket[], year?: string, eventId?: string | null): Promise<void> {
     const safeYear = this.safeYear(year);
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, safeYear);
     for (const ticket of tickets) {
-      await this.insert(ticket, safeYear);
+      await this.insert({ ...ticket, eventId: safeEventId }, safeYear, safeEventId);
     }
   }
 
-  private async insert(ticket: Ticket, year: string): Promise<void> {
+  private async insert(ticket: Ticket, year: string, eventId: string): Promise<void> {
     await this.pool.execute(
       `INSERT INTO tickets (
-        year, codigo, activada, activada_at, usada, usada_at, bloqueada,
+        year, event_id, codigo, activada, activada_at, usada, usada_at, bloqueada,
         fisica, validated_at, batch_id, qr_url, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         year,
+        eventId,
         ticket.codigo,
         ticket.activada ? 1 : 0,
         toMysqlDate(ticket.activadaAt),
@@ -94,33 +101,37 @@ export class TicketRepository {
     );
   }
 
-  async exists(code: string, year?: string): Promise<boolean> {
+  async exists(code: string, year?: string, eventId?: string | null): Promise<boolean> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
     const [rows] = await this.pool.execute<Rows<{ found: number }>>(
-      'SELECT 1 AS found FROM tickets WHERE year = ? AND codigo = ? LIMIT 1',
-      [this.safeYear(year), code.trim().toUpperCase()]
+      'SELECT 1 AS found FROM tickets WHERE year = ? AND event_id = ? AND codigo = ? LIMIT 1',
+      [this.safeYear(year), safeEventId, code.trim().toUpperCase()]
     );
     return rows.length > 0;
   }
 
-  async findByCode(code: string, year?: string): Promise<Ticket | null> {
+  async findByCode(code: string, year?: string, eventId?: string | null): Promise<Ticket | null> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
     const [rows] = await this.pool.execute<Rows<TicketRow>>(
-      'SELECT * FROM tickets WHERE year = ? AND codigo = ? LIMIT 1',
-      [this.safeYear(year), code.trim().toUpperCase()]
+      'SELECT * FROM tickets WHERE year = ? AND event_id = ? AND codigo = ? LIMIT 1',
+      [this.safeYear(year), safeEventId, code.trim().toUpperCase()]
     );
     return rows[0] ? serializeTicket(rows[0]) : null;
   }
 
-  async findByBatch(batchId: string, year?: string): Promise<Ticket[]> {
+  async findByBatch(batchId: string, year?: string, eventId?: string | null): Promise<Ticket[]> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
     const [rows] = await this.pool.execute<Rows<TicketRow>>(
-      'SELECT * FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?) ORDER BY codigo ASC',
-      [this.safeYear(year), batchId]
+      'SELECT * FROM tickets WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?) ORDER BY codigo ASC',
+      [this.safeYear(year), safeEventId, batchId]
     );
     return rows.map(serializeTicket);
   }
 
-  async list(params: { limit: number; cursor?: string; status?: string; search?: string; mode?: 'single' | 'batch' }, year?: string): Promise<PaginatedResult<Ticket>> {
-    const values: Array<string | number | Date> = [this.safeYear(year)];
-    const clauses = ['year = ?'];
+  async list(params: { limit: number; cursor?: string; status?: string; search?: string; mode?: 'single' | 'batch'; eventId?: string | null }, year?: string): Promise<PaginatedResult<Ticket>> {
+    const safeEventId = await this.eventRepository.resolveEventId(params.eventId, year);
+    const values: Array<string | number | Date> = [this.safeYear(year), safeEventId];
+    const clauses = ['year = ?', 'event_id = ?'];
 
     if (params.status === 'inactive') clauses.push('activada = 0');
     if (params.status === 'activated') clauses.push('activada = 1 AND usada = 0 AND bloqueada = 0');
@@ -150,8 +161,9 @@ export class TicketRepository {
     };
   }
 
-  async update(code: string, input: { activada?: boolean; bloqueada?: boolean }, year?: string): Promise<Ticket> {
-    const ticket = await this.findByCode(code, year);
+  async update(code: string, input: { activada?: boolean; bloqueada?: boolean }, year?: string, eventId?: string | null): Promise<Ticket> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const ticket = await this.findByCode(code, year, safeEventId);
     if (!ticket) {
       throw new AppError('TICKET_NOT_FOUND', 404, 'La entrada no existe');
     }
@@ -159,14 +171,15 @@ export class TicketRepository {
     const activada = input.activada ?? ticket.activada;
     const activadaAt = input.activada === undefined ? ticket.activadaAt : input.activada ? ticket.activadaAt ?? new Date().toISOString() : null;
     await this.pool.execute(
-      'UPDATE tickets SET activada = ?, activada_at = ?, bloqueada = ? WHERE year = ? AND codigo = ?',
-      [activada ? 1 : 0, toMysqlDate(activadaAt), (input.bloqueada ?? ticket.bloqueada) ? 1 : 0, this.safeYear(year), ticket.codigo]
+      'UPDATE tickets SET activada = ?, activada_at = ?, bloqueada = ? WHERE year = ? AND event_id = ? AND codigo = ?',
+      [activada ? 1 : 0, toMysqlDate(activadaAt), (input.bloqueada ?? ticket.bloqueada) ? 1 : 0, this.safeYear(year), safeEventId, ticket.codigo]
     );
-    return (await this.findByCode(code, year))!;
+    return (await this.findByCode(code, year, safeEventId))!;
   }
 
-  async markValidated(code: string, year?: string): Promise<Ticket> {
-    const ticket = await this.findByCode(code, year);
+  async markValidated(code: string, year?: string, eventId?: string | null): Promise<Ticket> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const ticket = await this.findByCode(code, year, safeEventId);
     if (!ticket) {
       throw new AppError('TICKET_NOT_FOUND', 404, 'La entrada no existe');
     }
@@ -182,17 +195,18 @@ export class TicketRepository {
 
     const now = new Date().toISOString();
     const [result] = await this.pool.execute(
-      'UPDATE tickets SET usada = 1, usada_at = ?, validated_at = ? WHERE year = ? AND codigo = ? AND usada = 0',
-      [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), ticket.codigo]
+      'UPDATE tickets SET usada = 1, usada_at = ?, validated_at = ? WHERE year = ? AND event_id = ? AND codigo = ? AND usada = 0',
+      [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), safeEventId, ticket.codigo]
     );
     if (!affectedRows(result)) {
       throw new AppError('TICKET_USED', 409, 'La entrada ya fue validada');
     }
-    return (await this.findByCode(code, year))!;
+    return (await this.findByCode(code, year, safeEventId))!;
   }
 
-  async markBatchValidated(batchId: string, year?: string): Promise<{ validatedNow: number; tickets: Ticket[] }> {
-    const tickets = await this.findByBatch(batchId, year);
+  async markBatchValidated(batchId: string, year?: string, eventId?: string | null): Promise<{ validatedNow: number; tickets: Ticket[] }> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const tickets = await this.findByBatch(batchId, year, safeEventId);
     if (!tickets.length) {
       throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
     }
@@ -201,48 +215,53 @@ export class TicketRepository {
     const [result] = await this.pool.execute(
       `UPDATE tickets
        SET usada = 1, usada_at = ?, validated_at = ?
-       WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND usada = 0 AND activada = 1 AND bloqueada = 0`,
-      [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), batchId]
+       WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?) AND usada = 0 AND activada = 1 AND bloqueada = 0`,
+      [toMysqlDate(now), toMysqlDate(now), this.safeYear(year), safeEventId, batchId]
     );
 
     return {
       validatedNow: affectedRows(result),
-      tickets: await this.findByBatch(batchId, year)
+      tickets: await this.findByBatch(batchId, year, safeEventId)
     };
   }
 
-  async activateBatch(batchId: string, year?: string): Promise<{ batchId: string; total: number; activatedCount: number; changedCount: number; remainingInactive: number }> {
+  async activateBatch(batchId: string, year?: string, eventId?: string | null): Promise<{ batchId: string; total: number; activatedCount: number; changedCount: number; remainingInactive: number }> {
     const safeYear = this.safeYear(year);
-    const [totalRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?)', [safeYear, batchId]);
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, safeYear);
+    const [totalRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?)', [safeYear, safeEventId, batchId]);
     const total = Number(totalRows[0]?.total ?? 0);
     if (!total) throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
-    const [result] = await this.pool.execute('UPDATE tickets SET activada = 1, activada_at = COALESCE(activada_at, CURRENT_TIMESTAMP(3)) WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND activada = 0', [safeYear, batchId]);
-    const [activeRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?) AND activada = 1', [safeYear, batchId]);
+    const [result] = await this.pool.execute('UPDATE tickets SET activada = 1, activada_at = COALESCE(activada_at, CURRENT_TIMESTAMP(3)) WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?) AND activada = 0', [safeYear, safeEventId, batchId]);
+    const [activeRows] = await this.pool.execute<Rows<{ total: number }>>('SELECT COUNT(*) AS total FROM tickets WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?) AND activada = 1', [safeYear, safeEventId, batchId]);
     const activatedCount = Number(activeRows[0]?.total ?? 0);
     return { batchId, total, activatedCount, changedCount: affectedRows(result), remainingInactive: total - activatedCount };
   }
 
-  async delete(code: string, year?: string): Promise<void> {
-    const ticket = await this.findByCode(code, year);
+  async delete(code: string, year?: string, eventId?: string | null): Promise<void> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const ticket = await this.findByCode(code, year, safeEventId);
     if (!ticket) throw new AppError('TICKET_NOT_FOUND', 404, 'La entrada no existe');
-    await this.pool.execute('DELETE FROM tickets WHERE year = ? AND codigo = ?', [this.safeYear(year), ticket.codigo]);
+    await this.pool.execute('DELETE FROM tickets WHERE year = ? AND event_id = ? AND codigo = ?', [this.safeYear(year), safeEventId, ticket.codigo]);
   }
 
-  async deleteBatch(batchId: string, year?: string): Promise<{ batchId: string; deleted: number; validatedTickets: string[] }> {
-    const tickets = await this.findByBatch(batchId, year);
+  async deleteBatch(batchId: string, year?: string, eventId?: string | null): Promise<{ batchId: string; deleted: number; validatedTickets: string[] }> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const tickets = await this.findByBatch(batchId, year, safeEventId);
     if (!tickets.length) throw new AppError('TICKET_BATCH_NOT_FOUND', 404, 'No se ha encontrado ningun lote con ese identificador');
     const validatedTickets = tickets.filter((ticket) => ticket.usada).map((ticket) => ticket.codigo);
-    const [result] = await this.pool.execute('DELETE FROM tickets WHERE year = ? AND LOWER(batch_id) = LOWER(?)', [this.safeYear(year), batchId]);
+    const [result] = await this.pool.execute('DELETE FROM tickets WHERE year = ? AND event_id = ? AND LOWER(batch_id) = LOWER(?)', [this.safeYear(year), safeEventId, batchId]);
     return { batchId, deleted: affectedRows(result), validatedTickets };
   }
 
-  async exportAll(year?: string): Promise<Ticket[]> {
-    const [rows] = await this.pool.execute<Rows<TicketRow>>('SELECT * FROM tickets WHERE year = ? ORDER BY created_at DESC, codigo DESC', [this.safeYear(year)]);
+  async exportAll(year?: string, eventId?: string | null): Promise<Ticket[]> {
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, year);
+    const [rows] = await this.pool.execute<Rows<TicketRow>>('SELECT * FROM tickets WHERE year = ? AND event_id = ? ORDER BY created_at DESC, codigo DESC', [this.safeYear(year), safeEventId]);
     return rows.map(serializeTicket);
   }
 
-  async stats(year?: string): Promise<AdminStats> {
+  async stats(year?: string, eventId?: string | null): Promise<AdminStats> {
     const safeYear = this.safeYear(year);
+    const safeEventId = await this.eventRepository.resolveEventId(eventId, safeYear);
     const [rows] = await this.pool.execute<Rows<AdminStats>>(
       `SELECT
         COUNT(*) AS totalEntradas,
@@ -250,8 +269,8 @@ export class TicketRepository {
         SUM(CASE WHEN usada = 1 THEN 1 ELSE 0 END) AS totalValidadas,
         SUM(CASE WHEN bloqueada = 1 THEN 1 ELSE 0 END) AS totalBloqueadas,
         COUNT(DISTINCT batch_id) AS totalLotes
-      FROM tickets WHERE year = ?`,
-      [safeYear]
+      FROM tickets WHERE year = ? AND event_id = ?`,
+      [safeYear, safeEventId]
     );
     return {
       totalEntradas: Number(rows[0]?.totalEntradas ?? 0),
